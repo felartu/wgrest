@@ -103,6 +103,30 @@ Output:
 ⇨ http server started on 127.0.0.1:8000
 ```
 
+## Add **wg0** device
+```shell
+curl -v -g \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer secret" \
+  -d '{
+    "name": "wg0",
+    "listen_port": 51820,
+    "private_key": "wBHGU3RiK/IFWXAF2jbHjGSDAKEO2ddcsZFEWcQ+qGc=",
+    "firewall_mark": 10,
+    "networks": [ "10.71.25.1/24", "fd42:21:21::1/64" ]
+  }' \
+  http://127.0.0.1:8000/v1/devices/
+```
+
+## Delete **wg0** device
+```shell
+curl -v -g \
+  -H "Authorization: Bearer secret" \
+  -X DELETE \
+  http://127.0.0.1:8000/v1/devices/wg0/
+
+```
+
 ## Update **wg0** device
 
 ```shell
