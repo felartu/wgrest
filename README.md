@@ -1,14 +1,11 @@
 WGRest
 ---
-[![Build Status](https://drone.forestvpn.com/api/badges/suquant/wgrest/status.svg)](https://drone.forestvpn.com/suquant/wgrest)
-[![codecov](https://codecov.io/gh/suquant/wgrest/branch/master/graph/badge.svg?token=NM179YJFEJ)](https://codecov.io/gh/suquant/wgrest)
 
 WGRest is a WireGuard REST API server. It operates wireguard through IPC and doesn't require any dependencies. It aims
 to be simpler, faster, and usable on embedded devices such as routers or any other low power and low memory devices.
 
 WireGuard is a simple and modern VPN. It is cross-platform (Windows, macOS, BSD, iOS, Android).
 
-Swagger UI: https://wgrest.forestvpn.com/swagger/
 
 1|2|3|4
 :---:|:---:|:---:|:---:
@@ -24,7 +21,6 @@ Swagger UI: https://wgrest.forestvpn.com/swagger/
 * ACME TLS support
 * Bearer token auth
 
-Check all features [here](https://wgrest.forestvpn.com/swagger/)
 
 ## Install
 
@@ -33,7 +29,7 @@ Check all features [here](https://wgrest.forestvpn.com/swagger/)
 #### WGRest server
 
 ```shell
-curl -L https://github.com/suquant/wgrest/releases/latest/download/wgrest_amd64.deb -o wgrest_amd64.deb
+curl -L https://github.com/felartu/wgrest/dist/wgrest_amd64.deb -o wgrest_amd64.deb
 
 dpkg -i wgrest_amd64.deb
 ```
@@ -52,7 +48,7 @@ WGRest optionally comes with web ui and it is not included by default into binar
 enable it.
 
 ```shell
-curl -L https://github.com/suquant/wgrest/releases/latest/download/wgrest-linux-amd64 -o wgrest
+curl -L https://github.com/felartu/wgrest/dist/wgrest-linux-amd64 -o wgrest
 
 chmod +x wgrest
 ```
