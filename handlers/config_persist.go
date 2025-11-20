@@ -6,6 +6,7 @@ import (
 	"github.com/suquant/wgrest/utils"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,6 +64,18 @@ func (c *WireGuardContainer) removeDeviceConfig(name string) error {
 	}
 
 	return os.Remove(filePath)
+}
+
+func enableWGQuickService(name string) error {
+	unit := fmt.Sprintf("wg-quick@%s.service", name)
+	cmd := exec.Command("systemctl", "enable", unit)
+	return cmd.Run()
+}
+
+func disableWGQuickService(name string) error {
+	unit := fmt.Sprintf("wg-quick@%s.service", name)
+	cmd := exec.Command("systemctl", "disable", unit)
+	return cmd.Run()
 }
 
 func renderWGQuickConfig(device wgtypes.Device, addresses []string) ([]byte, error) {

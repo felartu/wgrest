@@ -9,15 +9,10 @@ info:
       * Manage device: create, update, and delete wireguard interface
       * Manage device's ip addresses: attache or detach ip addresses to the netowrk interface
       * Manage device's peers: create, update, and delete peers
-      * Peer's QR code, for use in WireGuard & ForestVPN client
+      * Peer's QR code, for use in WireGuard
+      * Persist wg configuration files in /etc/wireguard/
 
-    ForestVPN client may be used as alternative client with enabled P2P technology over WireGuard tunnelling.
-    Read more on https://forestvpn.com/
-  termsOfService: https://forestvpn.com/terms/
-  contact:
-    name: ForestVPN
-    url: https://forestvpn.com/
-    email: support@forestvpn.com
+
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT

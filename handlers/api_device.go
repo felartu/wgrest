@@ -174,6 +174,14 @@ func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 		})
 	}
 
+	if err := enableWGQuickService(name); err != nil {
+		ctx.Logger().Errorf("failed to enable wg-quick service for device(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
 	return ctx.JSON(http.StatusCreated, result)
 }
 
@@ -345,6 +353,14 @@ func (c *WireGuardContainer) DeleteDevice(ctx echo.Context) error {
 
 	if err := c.removeDeviceConfig(name); err != nil {
 		ctx.Logger().Errorf("failed to remove device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := disableWGQuickService(name); err != nil {
+		ctx.Logger().Errorf("failed to disable wg-quick service for device(%s): %s", name, err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
 			Code:    "wireguard_device_error",
 			Message: err.Error(),
