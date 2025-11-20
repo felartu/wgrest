@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"github.com/labstack/echo/v4"
 	"github.com/skip2/go-qrcode"
 	"github.com/suquant/wgrest/models"
 	"github.com/suquant/wgrest/storage"
 	"github.com/suquant/wgrest/utils"
+	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,14 +20,161 @@ import (
 )
 
 // CreateDevice - Create new device
-// @todo: need to be implemented
 func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 	var request models.DeviceCreateOrUpdateRequest
 	if err := ctx.Bind(&request); err != nil {
 		return err
 	}
 
-	return ctx.NoContent(http.StatusNotImplemented)
+	if request.Name == nil || *request.Name == "" {
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "request_params_error",
+			Message: "device name is required",
+		})
+	}
+
+	name := *request.Name
+
+	_, err := netlink.LinkByName(name)
+	if err == nil {
+		return ctx.JSON(http.StatusConflict, models.Error{
+			Code:    "wireguard_device_exists",
+			Message: "device already exists",
+		})
+	}
+
+	var notFoundErr netlink.LinkNotFoundError
+	if err != nil && !errors.As(err, &notFoundErr) {
+		ctx.Logger().Errorf("failed to check device existence(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	wgLink := &netlink.GenericLink{
+		LinkAttrs: netlink.LinkAttrs{
+			Name: name,
+		},
+		LinkType: "wireguard",
+	}
+
+	if err := netlink.LinkAdd(wgLink); err != nil {
+		ctx.Logger().Errorf("failed to create wireguard device(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		ctx.Logger().Errorf("failed to load newly created device(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	cleanup := func() {
+		if err := netlink.LinkDel(link); err != nil {
+			ctx.Logger().Errorf("failed to cleanup device(%s): %s", name, err)
+		}
+	}
+
+	if request.Networks != nil {
+		for _, cidr := range *request.Networks {
+			_, ipNet, parseErr := net.ParseCIDR(cidr)
+			if parseErr != nil {
+				ctx.Logger().Errorf("failed to parse network(%s) for %s: %s", cidr, name, parseErr)
+				cleanup()
+				return ctx.JSON(http.StatusBadRequest, models.Error{
+					Code:    "request_params_error",
+					Message: parseErr.Error(),
+				})
+			}
+
+			if err := netlink.AddrAdd(link, &netlink.Addr{IPNet: ipNet}); err != nil {
+				ctx.Logger().Errorf("failed to add addr(%s) to %s: %s", cidr, name, err)
+				cleanup()
+				return ctx.JSON(http.StatusInternalServerError, models.Error{
+					Code:    "wireguard_device_error",
+					Message: err.Error(),
+				})
+			}
+		}
+	}
+
+	if err := netlink.LinkSetUp(link); err != nil {
+		ctx.Logger().Errorf("failed to set device(%s) up: %s", name, err)
+		cleanup()
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	conf := wgtypes.Config{}
+	if err := request.Apply(&conf); err != nil {
+		ctx.Logger().Errorf("failed to apply device(%s) config: %s", name, err)
+		cleanup()
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	client, err := wgctrl.New()
+	if err != nil {
+		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
+		cleanup()
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_client_error",
+			Message: err.Error(),
+		})
+	}
+	defer client.Close()
+
+	if err := client.ConfigureDevice(name, conf); err != nil {
+		ctx.Logger().Errorf("failed to configure wireguard device(%s): %s", name, err)
+		cleanup()
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_error",
+			Message: err.Error(),
+		})
+	}
+
+	device, err := client.Device(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	result := models.NewDevice(device)
+	if err := applyNetworks(&result); err != nil {
+		ctx.Logger().Errorf("failed to get networks for interface %s: %s", result.Name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	return ctx.JSON(http.StatusCreated, result)
 }
 
 // CreateDevicePeer - Create new device peer
@@ -156,13 +306,52 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 		}
 	}
 
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
 	return ctx.JSON(http.StatusCreated, models.NewPeer(peer))
 }
 
 // DeleteDevice - Delete Device
-// @todo: need to be implemented
 func (c *WireGuardContainer) DeleteDevice(ctx echo.Context) error {
-	return ctx.NoContent(http.StatusNotImplemented)
+	name := ctx.Param("name")
+
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		var notFoundErr netlink.LinkNotFoundError
+		if errors.As(err, &notFoundErr) || os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to find device(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := netlink.LinkDel(link); err != nil {
+		ctx.Logger().Errorf("failed to delete device(%s): %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.removeDeviceConfig(name); err != nil {
+		ctx.Logger().Errorf("failed to remove device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
 }
 
 // DeleteDevicePeer - Delete device's peer
@@ -209,6 +398,31 @@ func (c *WireGuardContainer) DeleteDevicePeer(ctx echo.Context) error {
 		})
 	}
 
+	device, err := client.Device(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	var peer *wgtypes.Peer
+	for _, v := range device.Peers {
+		if v.PublicKey == pubKey {
+			peer = &v
+			break
+		}
+	}
+
+	if peer == nil {
+		return ctx.NoContent(http.StatusNotFound)
+	}
+
 	deviceConf := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{
 			wgtypes.PeerConfig{
@@ -226,7 +440,28 @@ func (c *WireGuardContainer) DeleteDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	return ctx.NoContent(http.StatusNoContent)
+	device, err = client.Device(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	return ctx.JSON(http.StatusOK, models.NewPeer(*peer))
 }
 
 // GetDevice - Get device info
@@ -259,6 +494,14 @@ func (c *WireGuardContainer) GetDevice(ctx echo.Context) error {
 	result := models.NewDevice(device)
 	if err := applyNetworks(&result); err != nil {
 		ctx.Logger().Errorf("failed to get networks for interface %s: %s", result.Name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
 			Code:    "wireguard_device_error",
 			Message: err.Error(),
@@ -521,6 +764,14 @@ func (c *WireGuardContainer) UpdateDevice(ctx echo.Context) error {
 		})
 	}
 
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
 	return ctx.JSON(http.StatusOK, result)
 }
 
@@ -638,6 +889,14 @@ func (c *WireGuardContainer) UpdateDevicePeer(ctx echo.Context) error {
 
 	if peer == nil {
 		return ctx.NoContent(http.StatusNotFound)
+	}
+
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
 	}
 
 	return ctx.JSON(http.StatusOK, models.NewPeer(*peer))
@@ -768,7 +1027,31 @@ func (c *WireGuardContainer) GetDevicePeerQuickConfigQRCodePNG(ctx echo.Context)
 
 // GetDeviceOptions - Get device options
 func (c *WireGuardContainer) GetDeviceOptions(ctx echo.Context) error {
-	options, err := c.storage.ReadDeviceOptions(ctx.Param("name"))
+	name := ctx.Param("name")
+
+	client, err := wgctrl.New()
+	if err != nil {
+		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_client_error",
+			Message: err.Error(),
+		})
+	}
+	defer client.Close()
+
+	if _, err := client.Device(name); err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	options, err := c.storage.ReadDeviceOptions(name)
 	if err != nil && !os.IsNotExist(err) {
 		ctx.Logger().Errorf("failed to get device options: %s", err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
@@ -786,12 +1069,36 @@ func (c *WireGuardContainer) GetDeviceOptions(ctx echo.Context) error {
 
 // UpdateDeviceOptions - Update device's options
 func (c *WireGuardContainer) UpdateDeviceOptions(ctx echo.Context) error {
+	name := ctx.Param("name")
+
+	client, err := wgctrl.New()
+	if err != nil {
+		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_client_error",
+			Message: err.Error(),
+		})
+	}
+	defer client.Close()
+
+	if _, err := client.Device(name); err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
 	var request models.DeviceOptionsUpdateRequest
 	if err := ctx.Bind(&request); err != nil {
 		return err
 	}
 
-	options, err := c.storage.ReadDeviceOptions(ctx.Param("name"))
+	options, err := c.storage.ReadDeviceOptions(name)
 	if err != nil && !os.IsNotExist(err) {
 		ctx.Logger().Errorf("failed to get device options: %s", err)
 	}
@@ -811,7 +1118,7 @@ func (c *WireGuardContainer) UpdateDeviceOptions(ctx echo.Context) error {
 		})
 	}
 
-	err = c.storage.WriteDeviceOptions(ctx.Param("name"), *options)
+	err = c.storage.WriteDeviceOptions(name, *options)
 	if err != nil {
 		ctx.Logger().Errorf("failed to save device options: %s", err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
