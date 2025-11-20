@@ -78,6 +78,26 @@ func disableWGQuickService(name string) error {
 	return cmd.Run()
 }
 
+func ensureMasqueradeRule(name string) error {
+	comment := fmt.Sprintf("wgrest_%s_nat", name)
+	check := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-o", name, "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	if err := check.Run(); err == nil {
+		return nil
+	}
+
+	add := exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "-o", name, "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	return add.Run()
+}
+
+func removeMasqueradeRule(name string) error {
+	comment := fmt.Sprintf("wgrest_%s_nat", name)
+	del := exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-o", name, "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	if err := del.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func renderWGQuickConfig(device wgtypes.Device, addresses []string) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	fmt.Fprintln(buf, "[Interface]")
