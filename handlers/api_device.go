@@ -84,7 +84,7 @@ func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 
 	if request.Networks != nil {
 		for _, cidr := range *request.Networks {
-			_, ipNet, parseErr := net.ParseCIDR(cidr)
+			ip, ipNet, parseErr := net.ParseCIDR(cidr)
 			if parseErr != nil {
 				ctx.Logger().Errorf("failed to parse network(%s) for %s: %s", cidr, name, parseErr)
 				cleanup()
@@ -93,6 +93,9 @@ func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 					Message: parseErr.Error(),
 				})
 			}
+
+			// Keep the host IP provided by the user instead of the masked network address.
+			ipNet.IP = ip
 
 			if err := netlink.AddrAdd(link, &netlink.Addr{IPNet: ipNet}); err != nil {
 				ctx.Logger().Errorf("failed to add addr(%s) to %s: %s", cidr, name, err)
