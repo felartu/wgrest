@@ -232,12 +232,28 @@ func getVersionHandler(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, appVersion)
 }
 
+func findIptables() (string, error) {
+	candidates := []string{"iptables-legacy", "iptables"}
+	for _, c := range candidates {
+		if p, err := exec.LookPath(c); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("iptables not found in PATH")
+}
+
 func ensureWireGuardPrereqs() error {
 	required := []string{"wg", "wg-quick"}
 	for _, bin := range required {
 		if _, err := exec.LookPath(bin); err != nil {
 			return fmt.Errorf("%s not found in PATH: %w", bin, err)
 		}
+	}
+
+	if iptPath, err := findIptables(); err != nil {
+		return err
+	} else {
+		handlers.SetIptablesBinary(iptPath)
 	}
 
 	return nil

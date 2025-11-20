@@ -14,6 +14,14 @@ import (
 
 const wgQuickDir = "/etc/wireguard"
 
+var iptablesBinary = "iptables"
+
+func SetIptablesBinary(path string) {
+	if path != "" {
+		iptablesBinary = path
+	}
+}
+
 func (c *WireGuardContainer) persistDeviceConfig(device wgtypes.Device) error {
 	addresses, err := utils.GetInterfaceIPs(device.Name)
 	if err != nil {
@@ -80,20 +88,23 @@ func disableWGQuickService(name string) error {
 
 func ensureMasqueradeRule(name string) error {
 	comment := "wgrest_nat"
-	check := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	check := exec.Command(iptablesBinary, "-t", "nat", "-C", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
 	if err := check.Run(); err == nil {
 		return nil
 	}
 
-	add := exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
-	return add.Run()
+	add := exec.Command(iptablesBinary, "-t", "nat", "-I", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	if output, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("iptables add failed: %s: %w", string(output), err)
+	}
+	return nil
 }
 
 func removeMasqueradeRule(name string) error {
 	comment := "wgrest_nat"
-	del := exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
-	if err := del.Run(); err != nil {
-		return err
+	del := exec.Command(iptablesBinary, "-t", "nat", "-D", "POSTROUTING", "!", "-o", "lo", "-j", "MASQUERADE", "-m", "comment", "--comment", comment)
+	if output, err := del.CombinedOutput(); err != nil {
+		return fmt.Errorf("iptables delete failed: %s: %w", string(output), err)
 	}
 	return nil
 }
