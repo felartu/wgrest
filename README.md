@@ -29,7 +29,7 @@ WireGuard is a simple and modern VPN. It is cross-platform (Windows, macOS, BSD,
 #### WGRest server
 
 ```shell
-curl -L https://github.com/felartu/wgrest/dist/wgrest_amd64.deb -o wgrest_amd64.deb
+wget https://github.com/felartu/wgrest/raw/refs/heads/master/dist/wgrest_amd64.deb
 
 dpkg -i wgrest_amd64.deb
 ```
