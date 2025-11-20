@@ -13,7 +13,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 )
 
 var (
@@ -92,6 +94,13 @@ func main() {
 			if c.Bool("version") {
 				fmt.Printf("wgrest version: %s\n", appVersion)
 				return nil
+			}
+
+			if err := ensureWireGuardPrereqs(); err != nil {
+				return err
+			}
+			if err := ensureIPForwarding(); err != nil {
+				return err
 			}
 
 			e := echo.New()
@@ -221,4 +230,41 @@ func main() {
 
 func getVersionHandler(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, appVersion)
+}
+
+func ensureWireGuardPrereqs() error {
+	required := []string{"wg", "wg-quick"}
+	for _, bin := range required {
+		if _, err := exec.LookPath(bin); err != nil {
+			return fmt.Errorf("%s not found in PATH: %w", bin, err)
+		}
+	}
+
+	return nil
+}
+
+func ensureIPForwarding() error {
+	const fallbackPath = "/etc/sysctl.conf/99-wgrest.conf"
+	preferredPath := "/etc/sysctl.d/99-wgrest.conf"
+
+	sysctlPath := preferredPath
+	if _, err := os.Stat(filepath.Dir(preferredPath)); err != nil {
+		sysctlPath = fallbackPath
+	}
+
+	if err := os.MkdirAll(filepath.Dir(sysctlPath), 0755); err != nil {
+		return fmt.Errorf("failed to create sysctl dir: %w", err)
+	}
+
+	content := []byte("net.ipv4.ip_forward=1\n")
+	if err := os.WriteFile(sysctlPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", sysctlPath, err)
+	}
+
+	cmd := exec.Command("sysctl", "-p", sysctlPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply sysctl (%s): %w", string(output), err)
+	}
+
+	return nil
 }

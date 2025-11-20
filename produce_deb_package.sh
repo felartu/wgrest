@@ -37,7 +37,8 @@ package_deb() {
 build_bin amd64 "${DIST_DIR}/wgrest-linux-amd64"
 build_bin arm64 "${DIST_DIR}/wgrest-linux-arm64"
 
-package_deb packaging/nfpm-amd64.yaml "${DIST_DIR}/wgrest_${VERSION}_amd64.deb"
-package_deb packaging/nfpm-arm64.yaml "${DIST_DIR}/wgrest_${VERSION}_arm64.deb"
+rm -f "${DIST_DIR}/wgrest_amd64.deb" "${DIST_DIR}/wgrest_arm64.deb"
+package_deb packaging/nfpm-amd64.yaml "${DIST_DIR}/wgrest_amd64.deb"
+package_deb packaging/nfpm-arm64.yaml "${DIST_DIR}/wgrest_arm64.deb"
 
 echo "Done. Packages in ${DIST_DIR}"
