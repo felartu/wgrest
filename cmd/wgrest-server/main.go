@@ -219,9 +219,11 @@ func main() {
 
 			// GetDevicePeerQuickConfig - Get device peer quick config
 			v1.GET("/devices/:name/peers/:urlSafePubKey/quick.conf", wc.GetDevicePeerQuickConfig)
+			v1.GET("/devices/:name/peers/:urlSafePubKey/quick.conf/", wc.GetDevicePeerQuickConfig)
 
 			// GetDevicePeerQuickConfigQRCodePNG - Get device peer quick config QR code
 			v1.GET("/devices/:name/peers/:urlSafePubKey/quick.conf.png", wc.GetDevicePeerQuickConfigQRCodePNG)
+			v1.GET("/devices/:name/peers/:urlSafePubKey/quick.conf.png/", wc.GetDevicePeerQuickConfigQRCodePNG)
 
 			// GetDeviceOptions - Get device options
 			v1.GET("/devices/:name/options/", wc.GetDeviceOptions)
