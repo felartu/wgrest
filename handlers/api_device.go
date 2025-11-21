@@ -495,7 +495,10 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	allowedIPs := assignedAddrs
+	allowedIPs := deviceOptions.AllowedIPs
+	if len(allowedIPs) == 0 {
+		allowedIPs = assignedAddrs
+	}
 	if request.AllowedIps != nil {
 		allowedIPs = *request.AllowedIps
 	}
