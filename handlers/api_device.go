@@ -526,6 +526,20 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
+	// Reload device to persist the freshly applied peer state (AllowedIPs/PSK, etc.).
+	device, err = client.Device(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device after configure: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
 	if err := c.persistDeviceConfig(*device); err != nil {
 		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{

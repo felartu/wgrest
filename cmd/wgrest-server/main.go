@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -113,6 +114,17 @@ func main() {
 				"^/devices":   "/",
 				"^/devices/*": "/",
 			}))
+			// Normalize /v1 paths so trailing slash is optional.
+			e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					req := c.Request()
+					p := req.URL.Path
+					if strings.HasPrefix(p, "/v1") && p != "/" && !strings.HasSuffix(p, "/") {
+						req.URL.Path = p + "/"
+					}
+					return next(c)
+				}
+			})
 
 			e.GET("/version", getVersionHandler)
 
@@ -190,6 +202,7 @@ func main() {
 
 			// ListDevicePeers - Peers list
 			v1.GET("/devices/:name/peers/", wc.ListDevicePeers)
+			v1.GET("/devices/:name/peers", wc.ListDevicePeers)
 
 			// ListDevices - Devices list
 			v1.GET("/devices/", wc.ListDevices)
