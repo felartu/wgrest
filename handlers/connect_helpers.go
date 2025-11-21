@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+func ipKey(ip net.IP) string {
+	return ip.String()
+}
+
+func hostMask(ip net.IP) net.IPMask {
+	if ip.To4() != nil {
+		return net.CIDRMask(net.IPv4len*8, net.IPv4len*8)
+	}
+	return net.CIDRMask(net.IPv6len*8, net.IPv6len*8)
+}
+
 func resolvePrivateKey(key *string) (*wgtypes.Key, error) {
 	if key != nil {
 		parsed, err := wgtypes.ParseKey(*key)
@@ -89,10 +100,11 @@ func assignAddresses(requested *[]string, device *wgtypes.Device, used map[strin
 		return nil, fmt.Errorf("no address pools available")
 	}
 
-	assign := func(ipNet *net.IPNet) string {
-		ipNetStr := ipNet.String()
-		used[ipNetStr] = struct{}{}
-		return ipNetStr
+	assignHost := func(ip net.IP) string {
+		used[ipKey(ip)] = struct{}{}
+		mask := hostMask(ip)
+		ones, _ := mask.Size()
+		return fmt.Sprintf("%s/%d", ip.String(), ones)
 	}
 
 	if requested != nil && len(*requested) > 0 {
@@ -103,24 +115,26 @@ func assignAddresses(requested *[]string, device *wgtypes.Device, used map[strin
 				return nil, err
 			}
 			ipNet.IP = ip
-			if _, exists := used[ipNet.String()]; exists {
+			if _, exists := used[ipKey(ipNet.IP)]; exists {
 				alt, err := findNextFree(ipNet.IP.To4() != nil, poolNets, used)
 				if err != nil {
 					return nil, err
 				}
-				assigned = append(assigned, assign(alt))
+				assigned = append(assigned, assignHost(alt.IP))
 			} else {
-				assigned = append(assigned, assign(ipNet))
+				ones, _ := ipNet.Mask.Size()
+				assigned = append(assigned, fmt.Sprintf("%s/%d", ipNet.IP.String(), ones))
+				used[ipKey(ipNet.IP)] = struct{}{}
 			}
 		}
 		return assigned, nil
 	}
 
 	if alt, err := findNextFree(true, poolNets, used); err == nil {
-		return []string{assign(alt)}, nil
+		return []string{assignHost(alt.IP)}, nil
 	}
 	if alt, err := findNextFree(false, poolNets, used); err == nil {
-		return []string{assign(alt)}, nil
+		return []string{assignHost(alt.IP)}, nil
 	}
 
 	return nil, fmt.Errorf("no free addresses available")
@@ -144,13 +158,17 @@ func findNextFree(ipv4 bool, pools []net.IPNet, used map[string]struct{}) (*net.
 		start := ipToBigInt(pool.IP.Mask(pool.Mask))
 		limit := new(big.Int).Lsh(big.NewInt(1), uint(hostBits))
 		for offset := int64(1); offset < limit.Int64(); offset++ {
+			// Skip broadcast for IPv4 (offset at the end of the range).
+			if ipv4 && offset == limit.Int64()-1 {
+				continue
+			}
 			candidateInt := new(big.Int).Add(start, big.NewInt(offset))
 			candidateIP := bigIntToIP(candidateInt, ipv4)
 			cNet := net.IPNet{
 				IP:   candidateIP,
 				Mask: pool.Mask,
 			}
-			if _, exists := used[cNet.String()]; !exists {
+			if _, exists := used[ipKey(cNet.IP)]; !exists {
 				return &cNet, nil
 			}
 		}

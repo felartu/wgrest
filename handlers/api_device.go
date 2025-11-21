@@ -447,12 +447,16 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 	used := map[string]struct{}{}
 	for _, p := range device.Peers {
 		for _, ipnet := range p.AllowedIPs {
-			used[ipnet.String()] = struct{}{}
+			used[ipKey(ipnet.IP)] = struct{}{}
 		}
 	}
 	if ips, err := utils.GetInterfaceIPs(device.Name); err == nil {
 		for _, addr := range ips {
-			used[addr] = struct{}{}
+			ip, _, err := net.ParseCIDR(addr)
+			if err != nil {
+				continue
+			}
+			used[ipKey(ip)] = struct{}{}
 		}
 	}
 
