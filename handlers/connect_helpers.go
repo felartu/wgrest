@@ -180,3 +180,10 @@ func padBytes(b []byte, size int) []byte {
 	copy(padded[size-len(b):], b)
 	return padded
 }
+
+func pskString(psk *wgtypes.Key) string {
+	if psk == nil {
+		return ""
+	}
+	return psk.String()
+}

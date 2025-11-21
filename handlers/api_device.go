@@ -427,6 +427,16 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
+	// reuse stored preshared key if none provided
+	if request.PresharedKey == nil {
+		if opts, err := c.storage.ReadPeerOptions(clientPrivKey.PublicKey()); err == nil && opts != nil && opts.PresharedKey != "" {
+			existing, parseErr := wgtypes.ParseKey(opts.PresharedKey)
+			if parseErr == nil {
+				psk = &existing
+			}
+		}
+	}
+
 	host := deviceOptions.Host
 	if host == "" {
 		if h, err := utils.GetExternalIP(); err == nil {
@@ -438,6 +448,11 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 	for _, p := range device.Peers {
 		for _, ipnet := range p.AllowedIPs {
 			used[ipnet.String()] = struct{}{}
+		}
+	}
+	if ips, err := utils.GetInterfaceIPs(device.Name); err == nil {
+		for _, addr := range ips {
+			used[addr] = struct{}{}
 		}
 	}
 
@@ -520,7 +535,8 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 	}
 
 	if err := c.storage.WritePeerOptions(peerConf.PublicKey, storage.StorePeerOptions{
-		PrivateKey: clientPrivKey.String(),
+		PrivateKey:   clientPrivKey.String(),
+		PresharedKey: pskString(psk),
 	}); err != nil {
 		ctx.Logger().Errorf("failed to save peer options: %s", err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
