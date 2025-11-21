@@ -212,6 +212,9 @@ func main() {
 			// UpdateDeviceOptions - Update device's options
 			v1.PATCH("/devices/:name/options/", wc.UpdateDeviceOptions)
 
+			// ConnectDevicePeer - Create/update peer and return client config
+			v1.POST("/devices/:name/connect/", wc.ConnectDevicePeer)
+
 			listen := c.String("listen")
 			// Start server
 			if len(tlsDomains) > 0 {

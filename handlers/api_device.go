@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/skip2/go-qrcode"
 	"github.com/suquant/wgrest/models"
@@ -127,6 +128,7 @@ func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 		})
 	}
 
+	var device *wgtypes.Device
 	client, err := wgctrl.New()
 	if err != nil {
 		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
@@ -147,7 +149,7 @@ func (c *WireGuardContainer) CreateDevice(ctx echo.Context) error {
 		})
 	}
 
-	device, err := client.Device(name)
+	device, err = client.Device(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ctx.NoContent(http.StatusNotFound)
@@ -268,7 +270,7 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 	}
 	defer client.Close()
 
-	_, err = client.Device(name)
+	device, err := client.Device(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ctx.NoContent(http.StatusNotFound)
@@ -281,6 +283,14 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 		})
 	}
 
+	peerExists := false
+	for _, p := range device.Peers {
+		if p.PublicKey == peerConf.PublicKey {
+			peerExists = true
+			break
+		}
+	}
+
 	err = request.Apply(&peerConf)
 	if err != nil {
 		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
@@ -288,6 +298,13 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 			Code:    "wireguard_config_error",
 			Message: err.Error(),
 		})
+	}
+
+	if request.AllowedIps != nil {
+		peerConf.ReplaceAllowedIPs = true
+	}
+	if peerExists {
+		peerConf.UpdateOnly = true
 	}
 
 	deviceConf := wgtypes.Config{
@@ -304,7 +321,7 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	device, err := client.Device(name)
+	device, err = client.Device(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ctx.NoContent(http.StatusNotFound)
@@ -334,6 +351,193 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 	}
 
 	return ctx.JSON(http.StatusCreated, models.NewPeer(peer))
+}
+
+// ConnectDevicePeer - One-shot peer create/update and return config parameters
+func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
+	name := ctx.Param("name")
+
+	var request models.ConnectRequest
+	if err := ctx.Bind(&request); err != nil {
+		return err
+	}
+
+	client, err := wgctrl.New()
+	if err != nil {
+		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_client_error",
+			Message: err.Error(),
+		})
+	}
+	defer client.Close()
+
+	device, err := client.Device(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ctx.NoContent(http.StatusNotFound)
+		}
+
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	deviceOptions, err := c.storage.ReadDeviceOptions(name)
+	if err != nil && !os.IsNotExist(err) {
+		ctx.Logger().Errorf("failed to get device options: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+	if deviceOptions == nil {
+		deviceOptions = &c.defaultDeviceOptions
+	}
+
+	clientPrivKey, err := resolvePrivateKey(request.PrivateKey)
+	if err != nil {
+		ctx.Logger().Errorf("failed to resolve private key: %s", err)
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	psk, err := resolvePresharedKey(request.PresharedKey)
+	if err != nil {
+		ctx.Logger().Errorf("failed to resolve preshared key: %s", err)
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	host := deviceOptions.Host
+	if host == "" {
+		if h, err := utils.GetExternalIP(); err == nil {
+			host = h
+		}
+	}
+
+	used := map[string]struct{}{}
+	for _, p := range device.Peers {
+		for _, ipnet := range p.AllowedIPs {
+			used[ipnet.String()] = struct{}{}
+		}
+	}
+
+	assignedAddrs, err := assignAddresses(request.Addresses, device, used)
+	if err != nil {
+		ctx.Logger().Errorf("failed to assign addresses: %s", err)
+		return ctx.JSON(http.StatusConflict, models.Error{
+			Code:    "address_allocation_error",
+			Message: err.Error(),
+		})
+	}
+
+	allowedIPs := assignedAddrs
+	if request.AllowedIps != nil {
+		allowedIPs = *request.AllowedIps
+	}
+
+	duration, err := parseKeepalive(request.PersistentKeepaliveInterval)
+	if err != nil {
+		ctx.Logger().Errorf("failed to parse keepalive: %s", err)
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	peerConf := wgtypes.PeerConfig{
+		PublicKey:         clientPrivKey.PublicKey(),
+		ReplaceAllowedIPs: true,
+	}
+
+	if duration != nil {
+		peerConf.PersistentKeepaliveInterval = duration
+	}
+
+	if psk != nil {
+		peerConf.PresharedKey = psk
+	}
+
+	peerExists := false
+	for _, p := range device.Peers {
+		if p.PublicKey == peerConf.PublicKey {
+			peerExists = true
+			break
+		}
+	}
+	if peerExists {
+		peerConf.UpdateOnly = true
+	}
+
+	peerConf.AllowedIPs, err = parseAllowedIPs(allowedIPs)
+	if err != nil {
+		ctx.Logger().Errorf("failed to parse allowed ips: %s", err)
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	deviceConf := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{
+			peerConf,
+		},
+	}
+
+	if err := client.ConfigureDevice(name, deviceConf); err != nil {
+		ctx.Logger().Errorf("failed to configure wireguard device(%s): %s", name, err)
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "wireguard_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.persistDeviceConfig(*device); err != nil {
+		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+
+	if err := c.storage.WritePeerOptions(peerConf.PublicKey, storage.StorePeerOptions{
+		PrivateKey: clientPrivKey.String(),
+	}); err != nil {
+		ctx.Logger().Errorf("failed to save peer options: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_config_error",
+			Message: err.Error(),
+		})
+	}
+
+	pskStr := ""
+	if psk != nil {
+		pskStr = psk.String()
+	}
+
+	resp := models.ConnectResponse{
+		Interface: models.ConnectResponseInterface{
+			PrivateKey: clientPrivKey.String(),
+			Addresses:  assignedAddrs,
+			DNS:        deviceOptions.DNSServers,
+		},
+		Peer: models.ConnectResponsePeer{
+			PublicKey:           device.PublicKey.String(),
+			PresharedKey:        pskStr,
+			Endpoint:            fmt.Sprintf("%s:%d", host, device.ListenPort),
+			AllowedIps:          allowedIPs,
+			PersistentKeepalive: durationSeconds(duration),
+		},
+	}
+
+	return ctx.JSON(http.StatusCreated, resp)
 }
 
 // DeleteDevice - Delete Device

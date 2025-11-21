@@ -520,6 +520,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /devices/{name}/connect/:
+    post:
+      summary: Create/update a peer and return client config
+      operationId: ConnectDevicePeer
+      tags:
+        - device
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectRequest"
+      responses:
+        201:
+          description: Ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectResponse"
+        404:
+          description: Not found
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -693,6 +726,66 @@ components:
           format: int64
           description: WireGuard device's peers total transmit bytes
           example: 45331987
+    ConnectRequest:
+      type: object
+      description: One-shot create/update peer and return client config.
+      properties:
+        private_key:
+          type: string
+          description: Client private key (base64). If omitted the server generates one.
+          nullable: true
+        preshared_key:
+          type: string
+          description: Optional preshared key (base64). If omitted the server generates one.
+          nullable: true
+        addresses:
+          type: array
+          description: Requested client interface addresses. Server will best-effort allocate unique addresses.
+          items:
+            type: string
+          nullable: true
+        allowed_ips:
+          type: array
+          description: Allowed IPs for the client peer. If omitted, the server uses assigned addresses/defaults.
+          items:
+            type: string
+          nullable: true
+        persistent_keepalive_interval:
+          type: string
+          description: Keepalive interval (e.g. "25s").
+          nullable: true
+    ConnectResponse:
+      type: object
+      description: Client configuration details.
+      properties:
+        interface:
+          type: object
+          properties:
+            private_key:
+              type: string
+            addresses:
+              type: array
+              items:
+                type: string
+            dns:
+              type: array
+              items:
+                type: string
+        peer:
+          type: object
+          properties:
+            public_key:
+              type: string
+            preshared_key:
+              type: string
+            endpoint:
+              type: string
+            allowed_ips:
+              type: array
+              items:
+                type: string
+            persistent_keepalive:
+              type: integer
     PeerCreateOrUpdateRequest:
       type: object
       description: Peer params that might be used due to creation or updation process

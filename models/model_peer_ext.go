@@ -61,11 +61,12 @@ func (r *PeerCreateOrUpdateRequest) Apply(conf *wgtypes.PeerConfig) error {
 	if r.AllowedIps != nil {
 		allowedIPs := make([]net.IPNet, len(*r.AllowedIps))
 		for i, v := range *r.AllowedIps {
-			_, ipNet, err := net.ParseCIDR(v)
+			ip, ipNet, err := net.ParseCIDR(v)
 			if err != nil {
 				return err
 			}
 
+			ipNet.IP = ip
 			if ipNet == nil {
 				return fmt.Errorf("failed to parse CIDR: %s", v)
 			}
