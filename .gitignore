@@ -11,8 +11,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-dist/
 clients/
 .DS_Store
 .vscode
 .idea
+.cache
+.modcache

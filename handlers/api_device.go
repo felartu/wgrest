@@ -205,6 +205,13 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 		return err
 	}
 
+	if request.AllowedIps == nil || len(*request.AllowedIps) == 0 {
+		return ctx.JSON(http.StatusBadRequest, models.Error{
+			Code:    "request_params_error",
+			Message: "allowed_ips is required",
+		})
+	}
+
 	var privateKey *wgtypes.Key
 	peerConf := wgtypes.PeerConfig{}
 	if request.PublicKey != nil {
