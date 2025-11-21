@@ -24,6 +24,7 @@ type peerConfigOptions struct {
 	forceUpdateOnly         bool
 	alwaysReplaceAllowedIPs bool
 	overridePublicKey       *wgtypes.Key
+	storeAddresses          []string
 }
 
 type peerApplyResult struct {
@@ -166,8 +167,11 @@ func (c *WireGuardContainer) applyPeerConfig(ctx echo.Context, name string, requ
 	if request.PresharedKey != nil {
 		storeOptions.PresharedKey = *request.PresharedKey
 	}
+	if len(opts.storeAddresses) > 0 {
+		storeOptions.Addresses = opts.storeAddresses
+	}
 
-	if storeOptions.PrivateKey != "" || storeOptions.PresharedKey != "" {
+	if storeOptions.PrivateKey != "" || storeOptions.PresharedKey != "" || len(storeOptions.Addresses) > 0 {
 		if err := c.storage.WritePeerOptions(peer.PublicKey, storeOptions); err != nil {
 			ctx.Logger().Errorf("failed to save peer options: %s", err)
 			return nil, &peerApplyError{status: http.StatusInternalServerError, code: "wireguard_config_error", err: err}
@@ -530,6 +534,7 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 
 	result, herr := c.applyPeerConfig(ctx, name, peerReq, peerConfigOptions{
 		alwaysReplaceAllowedIPs: true,
+		storeAddresses:          assignedAddrs,
 	})
 	if herr != nil {
 		return ctx.JSON(herr.status, models.Error{
@@ -1168,10 +1173,11 @@ func (c *WireGuardContainer) getDevicePeerQuickConfig(ctx echo.Context) (io.Read
 	}
 
 	quickConf, err := utils.GetPeerQuickConfig(*device, *peer, utils.PeerQuickConfigOptions{
-		PrivateKey: &peerOptions.PrivateKey,
-		DNSServers: &deviceOptions.DNSServers,
-		AllowedIPs: &deviceOptions.AllowedIPs,
-		Host:       &deviceOptions.Host,
+		PrivateKey:         &peerOptions.PrivateKey,
+		DNSServers:         &deviceOptions.DNSServers,
+		AllowedIPs:         &deviceOptions.AllowedIPs,
+		InterfaceAddresses: &peerOptions.Addresses,
+		Host:               &deviceOptions.Host,
 	})
 
 	if err != nil {

@@ -10,10 +10,11 @@ import (
 )
 
 type PeerQuickConfigOptions struct {
-	PrivateKey *string
-	DNSServers *[]string
-	AllowedIPs *[]string
-	Host       *string
+	PrivateKey         *string
+	DNSServers         *[]string
+	AllowedIPs         *[]string
+	InterfaceAddresses *[]string
+	Host               *string
 }
 
 func GetPeerQuickConfig(device wgtypes.Device, peer wgtypes.Peer, options PeerQuickConfigOptions) (io.Reader, error) {
@@ -23,9 +24,13 @@ func GetPeerQuickConfig(device wgtypes.Device, peer wgtypes.Peer, options PeerQu
 		fmt.Fprintln(b, "PrivateKey =", *options.PrivateKey)
 	}
 
-	addresses := make([]string, len(peer.AllowedIPs))
-	for i, v := range peer.AllowedIPs {
-		addresses[i] = v.String()
+	addresses := []string{}
+	if options.InterfaceAddresses != nil && len(*options.InterfaceAddresses) > 0 {
+		addresses = append(addresses, *options.InterfaceAddresses...)
+	} else {
+		for _, v := range peer.AllowedIPs {
+			addresses = append(addresses, v.String())
+		}
 	}
 
 	fmt.Fprintf(b, "Address = %s\n", strings.Join(addresses, ","))

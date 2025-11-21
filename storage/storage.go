@@ -62,12 +62,16 @@ func (o *StoreDeviceOptions) Restore(r io.Reader) error {
 type StorePeerOptions struct {
 	PrivateKey   string
 	PresharedKey string
+	Addresses    []string
 }
 
 func (o *StorePeerOptions) Dump(w io.Writer) error {
 	fmt.Fprintf(w, "PrivateKey = %s\n", o.PrivateKey)
 	if o.PresharedKey != "" {
 		fmt.Fprintf(w, "PresharedKey = %s\n", o.PresharedKey)
+	}
+	if len(o.Addresses) > 0 {
+		fmt.Fprintf(w, "Address = %s\n", strings.Join(o.Addresses, ","))
 	}
 
 	return nil
@@ -90,6 +94,15 @@ func (o *StorePeerOptions) Restore(r io.Reader) error {
 			break
 		case "presharedkey":
 			o.PresharedKey = strings.TrimSpace(terms[1])
+			break
+		case "address":
+			raw := strings.Split(terms[1], ",")
+			for _, v := range raw {
+				addr := strings.TrimSpace(v)
+				if addr != "" {
+					o.Addresses = append(o.Addresses, addr)
+				}
+			}
 			break
 		default:
 			return fmt.Errorf("invalid option: %s", left)
