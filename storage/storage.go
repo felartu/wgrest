@@ -98,4 +98,7 @@ type Storage interface {
 
 	ReadDeviceOptions(name string) (*StoreDeviceOptions, error)
 	ReadPeerOptions(pubKey wgtypes.Key) (*StorePeerOptions, error)
+
+	DeleteDeviceOptions(name string) error
+	DeletePeerOptions(pubKey wgtypes.Key) error
 }

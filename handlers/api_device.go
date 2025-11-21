@@ -342,6 +342,18 @@ func (c *WireGuardContainer) CreateDevicePeer(ctx echo.Context) error {
 		}
 	}
 
+	if privateKey != nil {
+		if err := c.storage.WritePeerOptions(peerConf.PublicKey, storage.StorePeerOptions{
+			PrivateKey: privateKey.String(),
+		}); err != nil {
+			ctx.Logger().Errorf("failed to save peer options: %s", err)
+			return ctx.JSON(http.StatusInternalServerError, models.Error{
+				Code:    "wireguard_config_error",
+				Message: err.Error(),
+			})
+		}
+	}
+
 	if err := c.persistDeviceConfig(*device); err != nil {
 		ctx.Logger().Errorf("failed to persist device(%s) config: %s", name, err)
 		return ctx.JSON(http.StatusInternalServerError, models.Error{
@@ -544,6 +556,29 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 func (c *WireGuardContainer) DeleteDevice(ctx echo.Context) error {
 	name := ctx.Param("name")
 
+	client, err := wgctrl.New()
+	if err != nil {
+		ctx.Logger().Errorf("failed to init wireguard ipc: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_client_error",
+			Message: err.Error(),
+		})
+	}
+	defer client.Close()
+
+	device, err := client.Device(name)
+	if err != nil && !os.IsNotExist(err) {
+		ctx.Logger().Errorf("failed to get wireguard device: %s", err)
+		return ctx.JSON(http.StatusInternalServerError, models.Error{
+			Code:    "wireguard_device_error",
+			Message: err.Error(),
+		})
+	}
+	var peers []wgtypes.Peer
+	if device != nil {
+		peers = device.Peers
+	}
+
 	link, err := netlink.LinkByName(name)
 	if err != nil {
 		var notFoundErr netlink.LinkNotFoundError
@@ -580,6 +615,16 @@ func (c *WireGuardContainer) DeleteDevice(ctx echo.Context) error {
 			Code:    "wireguard_device_error",
 			Message: err.Error(),
 		})
+	}
+
+	for _, p := range peers {
+		if err := c.storage.DeletePeerOptions(p.PublicKey); err != nil && !os.IsNotExist(err) {
+			ctx.Logger().Errorf("failed to delete peer options(%s): %s", p.PublicKey.String(), err)
+		}
+	}
+
+	if err := c.storage.DeleteDeviceOptions(name); err != nil && !os.IsNotExist(err) {
+		ctx.Logger().Errorf("failed to delete device options(%s): %s", name, err)
 	}
 
 	if err := removeMasqueradeRule(name); err != nil {
@@ -698,6 +743,10 @@ func (c *WireGuardContainer) DeleteDevicePeer(ctx echo.Context) error {
 			Code:    "wireguard_device_error",
 			Message: err.Error(),
 		})
+	}
+
+	if err := c.storage.DeletePeerOptions(pubKey); err != nil && !os.IsNotExist(err) {
+		ctx.Logger().Errorf("failed to delete peer options(%s): %s", pubKey.String(), err)
 	}
 
 	return ctx.JSON(http.StatusOK, models.NewPeer(*peer))

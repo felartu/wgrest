@@ -85,3 +85,12 @@ func (s *FileStorage) ReadPeerOptions(pubKey wgtypes.Key) (*StorePeerOptions, er
 	o := &StorePeerOptions{}
 	return o, o.Restore(f)
 }
+
+func (s *FileStorage) DeleteDeviceOptions(name string) error {
+	return os.Remove(s.getFilePath(name))
+}
+
+func (s *FileStorage) DeletePeerOptions(pubKey wgtypes.Key) error {
+	safeName := base64.URLEncoding.EncodeToString(pubKey[:])
+	return os.Remove(s.getFilePath(safeName))
+}
