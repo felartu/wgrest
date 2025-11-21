@@ -114,12 +114,16 @@ func main() {
 				"^/devices":   "/",
 				"^/devices/*": "/",
 			}))
-			// Normalize /v1 paths so trailing slash is optional.
+			// Normalize /v1 paths so trailing slash is optional, but skip file-like paths (.conf, .png, etc.).
 			e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 				return func(c echo.Context) error {
 					req := c.Request()
 					p := req.URL.Path
 					if strings.HasPrefix(p, "/v1") && p != "/" && !strings.HasSuffix(p, "/") {
+						base := path.Base(p)
+						if strings.Contains(base, ".") {
+							return next(c)
+						}
 						req.URL.Path = p + "/"
 					}
 					return next(c)
