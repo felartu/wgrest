@@ -22,6 +22,11 @@ func SetIptablesBinary(path string) {
 	}
 }
 
+// EnsureMasqueradeRule installs the MASQUERADE rule if missing.
+func EnsureMasqueradeRule() error {
+	return ensureMasqueradeRule("")
+}
+
 func (c *WireGuardContainer) persistDeviceConfig(device wgtypes.Device) error {
 	addresses, err := utils.GetInterfaceIPs(device.Name)
 	if err != nil {

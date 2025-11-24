@@ -103,6 +103,9 @@ func main() {
 			if err := ensureIPForwarding(); err != nil {
 				return err
 			}
+			if err := handlers.EnsureMasqueradeRule(); err != nil {
+				return err
+			}
 
 			e := echo.New()
 			e.HideBanner = true
