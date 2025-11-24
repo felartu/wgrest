@@ -31,6 +31,8 @@ WireGuard is a simple and modern VPN. It is cross-platform (Windows, macOS, BSD,
 ```shell
 wget https://github.com/felartu/wgrest/raw/refs/heads/master/dist/wgrest_amd64.deb
 
+apt update && apt install wireguard -y
+
 dpkg -i wgrest_amd64.deb
 ```
 
@@ -38,8 +40,6 @@ dpkg -i wgrest_amd64.deb
 
 ```shell
 curl -L https://github.com/suquant/wgrest-webapp/releases/latest/download/wgrest-webapp_amd64.deb -o wgrest-webapp_amd64.deb
-
-apt update && apt install wireguard -y
 
 dpkg -i wgrest-webapp_amd64.deb
 ```
