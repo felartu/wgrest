@@ -119,6 +119,7 @@ func renderWGQuickConfig(device wgtypes.Device, addresses []string) ([]byte, err
 	if device.FirewallMark != 0 {
 		fmt.Fprintf(buf, "FwMark = %d\n", device.FirewallMark)
 	}
+	fmt.Fprintln(buf, "Table = off")
 	if len(addresses) > 0 {
 		fmt.Fprintf(buf, "Address = %s\n", strings.Join(addresses, ", "))
 	}
