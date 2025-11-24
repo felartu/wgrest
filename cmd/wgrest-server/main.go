@@ -258,7 +258,7 @@ func getVersionHandler(ctx echo.Context) error {
 }
 
 func findIptables() (string, error) {
-	candidates := []string{"iptables-legacy", "iptables"}
+	candidates := []string{"iptables", "iptables-legacy"}
 	for _, c := range candidates {
 		if p, err := exec.LookPath(c); err == nil {
 			return p, nil
