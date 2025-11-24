@@ -39,6 +39,8 @@ dpkg -i wgrest_amd64.deb
 ```shell
 curl -L https://github.com/suquant/wgrest-webapp/releases/latest/download/wgrest-webapp_amd64.deb -o wgrest-webapp_amd64.deb
 
+apt update && apt install wireguard -y
+
 dpkg -i wgrest-webapp_amd64.deb
 ```
 
@@ -112,7 +114,6 @@ curl -v -g \
     "name": "wg0",
     "listen_port": 51820,
     "private_key": "wBHGU3RiK/IFWXAF2jbHjGSDAKEO2ddcsZFEWcQ+qGc=",
-    "firewall_mark": 10,
     "networks": [ "10.71.25.1/24", "fd42:21:21::1/64" ]
   }' \
   http://127.0.0.1:8000/v1/devices/
