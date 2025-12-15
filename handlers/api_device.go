@@ -514,15 +514,20 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	allowedIPs := deviceOptions.AllowedIPs
-	if len(allowedIPs) == 0 {
-		allowedIPs = c.defaultDeviceOptions.AllowedIPs
-	}
-	if len(allowedIPs) == 0 {
-		allowedIPs = assignedAddrs
-	}
+	// By default, bind the peer to the addresses we allocated; allow explicit override.
+	allowedIPs := assignedAddrs
 	if request.AllowedIps != nil {
 		allowedIPs = *request.AllowedIps
+	} else {
+		if len(allowedIPs) == 0 && len(deviceOptions.AllowedIPs) > 0 {
+			allowedIPs = deviceOptions.AllowedIPs
+		}
+		if len(allowedIPs) == 0 && len(c.defaultDeviceOptions.AllowedIPs) > 0 {
+			allowedIPs = c.defaultDeviceOptions.AllowedIPs
+		}
+		if len(allowedIPs) == 0 && len(assignedAddrs) > 0 {
+			allowedIPs = assignedAddrs
+		}
 	}
 
 	duration, err := parseKeepalive(request.PersistentKeepaliveInterval)
