@@ -514,11 +514,10 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	// By default, bind the peer to the addresses we allocated; allow explicit override.
-	allowedIPs := assignedAddrs
-	if request.AllowedIps != nil {
-		allowedIPs = *request.AllowedIps
-	}
+	// Peers must be scoped to their assigned addresses in the WireGuard config.
+	peerAllowedIPs := assignedAddrs
+	// Clients should route all traffic through the tunnel by default in the response/quick config.
+	clientAllowedIPs := []string{"0.0.0.0/0"}
 
 	duration, err := parseKeepalive(request.PersistentKeepaliveInterval)
 	if err != nil {
@@ -529,7 +528,7 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 		})
 	}
 
-	reqAllowed := allowedIPs
+	reqAllowed := peerAllowedIPs
 	pkStr := clientPrivKey.String()
 	peerReq := models.PeerCreateOrUpdateRequest{
 		PrivateKey:                  &pkStr,
@@ -565,7 +564,7 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 			PublicKey:           device.PublicKey.String(),
 			PresharedKey:        pskStr,
 			Endpoint:            fmt.Sprintf("%s:%d", host, device.ListenPort),
-			AllowedIps:          allowedIPs,
+			AllowedIps:          clientAllowedIPs,
 			PersistentKeepalive: durationSeconds(duration),
 		},
 	}
@@ -1182,10 +1181,11 @@ func (c *WireGuardContainer) getDevicePeerQuickConfig(ctx echo.Context) (io.Read
 		return nil, os.ErrNotExist
 	}
 
+	responseAllowedIPs := []string{"0.0.0.0/0"}
 	quickConf, err := utils.GetPeerQuickConfig(*device, *peer, utils.PeerQuickConfigOptions{
 		PrivateKey:         &peerOptions.PrivateKey,
 		DNSServers:         &deviceOptions.DNSServers,
-		AllowedIPs:         &deviceOptions.AllowedIPs,
+		AllowedIPs:         &responseAllowedIPs,
 		InterfaceAddresses: &peerOptions.Addresses,
 		Host:               &deviceOptions.Host,
 	})
