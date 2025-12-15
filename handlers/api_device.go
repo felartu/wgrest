@@ -475,18 +475,33 @@ func (c *WireGuardContainer) ConnectDevicePeer(ctx echo.Context) error {
 	}
 
 	used := map[string]struct{}{}
+	addUsed := func(ip net.IP) {
+		if ip == nil {
+			return
+		}
+		used[ipKey(ip)] = struct{}{}
+	}
+	addUsedCIDR := func(addr string) {
+		ip, _, err := net.ParseCIDR(addr)
+		if err == nil {
+			addUsed(ip)
+		}
+	}
+
 	for _, p := range device.Peers {
-		for _, ipnet := range p.AllowedIPs {
-			used[ipKey(ipnet.IP)] = struct{}{}
+		if opts, err := c.storage.ReadPeerOptions(p.PublicKey); err == nil && opts != nil && len(opts.Addresses) > 0 {
+			for _, addr := range opts.Addresses {
+				addUsedCIDR(addr)
+			}
+		} else {
+			for _, ipnet := range p.AllowedIPs {
+				addUsed(ipnet.IP)
+			}
 		}
 	}
 	if ips, err := utils.GetInterfaceIPs(device.Name); err == nil {
 		for _, addr := range ips {
-			ip, _, err := net.ParseCIDR(addr)
-			if err != nil {
-				continue
-			}
-			used[ipKey(ip)] = struct{}{}
+			addUsedCIDR(addr)
 		}
 	}
 
